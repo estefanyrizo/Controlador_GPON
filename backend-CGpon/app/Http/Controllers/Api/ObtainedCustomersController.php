@@ -18,6 +18,10 @@ use Illuminate\Http\Client\RequestException;
 
 class ObtainedCustomersController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('role:superadmin,main_provider');
+    }
     /**
      * List all obtained customers
      */

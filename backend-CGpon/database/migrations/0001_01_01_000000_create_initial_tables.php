@@ -14,19 +14,11 @@ return new class extends Migration
             $table->unsignedBigInteger('default_isp')->nullable();
         });
 
-        Schema::create('statuses', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('code')->unique();
-            $table->text('description')->nullable();
-            $table->timestamps();
-        });
-
         Schema::create('isps', function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('description')->nullable();
-            $table->foreignId('status_id')->default(1)->constrained('statuses');
+            $table->boolean('status')->default(true);
             $table->timestamps();
         });
 
@@ -46,7 +38,7 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->foreignId('user_type_id')->constrained('user_types');
-            $table->foreignId('status_id')->default(1)->constrained('statuses');
+            $table->boolean('status')->default(true);
             $table->foreignId('isp_id')->nullable()->constrained('isps');
             $table->rememberToken();
             $table->timestamps();
@@ -76,7 +68,7 @@ return new class extends Migration
             $table->string('username')->nullable();
             $table->string('password')->nullable();
             $table->string('must_login')->nullable();
-            $table->foreignId('status_id')->default(1)->constrained('statuses');
+            $table->boolean('status')->default(true);
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
         });
@@ -87,7 +79,7 @@ return new class extends Migration
             $table->foreignId('olt_id')->constrained('olts')->cascadeOnDelete();
             $table->string('relation_name')->nullable();
             $table->text('relation_notes')->nullable();
-            $table->foreignId('status_id')->default(1)->constrained('statuses');
+            $table->boolean('status')->default(true);
             $table->timestamps();
             $table->unique(['isp_id', 'olt_id']);
         });
@@ -100,7 +92,7 @@ return new class extends Migration
             $table->string('service_number')->nullable();
             $table->string('code_customer')->nullable();
             $table->string('customer_name')->nullable();
-            $table->string('obtained_status')->nullable();
+            $table->boolean('obtained_status')->nullable();
             $table->string('obtained_velocity')->nullable();
             $table->timestamps();
         });
@@ -118,9 +110,7 @@ return new class extends Migration
         Schema::dropIfExists('users');
         Schema::dropIfExists('user_types');
         Schema::dropIfExists('isps');
-        Schema::dropIfExists('statuses');
         Schema::dropIfExists('configurations');
         Schema::dropIfExists('customers');
-        Schema::dropIfExists('customer_statuses');
     }
 };

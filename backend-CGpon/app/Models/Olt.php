@@ -14,30 +14,57 @@ class OLT extends Model
 
     protected $table = 'olts';
 
+    // Protege solo el ID
     protected $guarded = ['id'];
 
-    public function status(): BelongsTo {
-        return $this->belongsTo(Status::class, 'status_id');
-    }
-
-    public function customers(): HasMany {
+    /**
+     * Relación: OLT tiene muchos clientes
+     */
+    public function customers(): HasMany
+    {
         return $this->hasMany(Customer::class, 'olt_id');
     }
 
-    public function isps(): BelongsToMany {
+    /**
+     * Relación: OLT pertenece a muchos ISPs (pivot con booleano)
+     */
+    public function isps(): BelongsToMany
+    {
         return $this->belongsToMany(ISP::class, 'isp_olt', 'olt_id', 'isp_id')
                     ->using(IspOlt::class)
-                    ->withPivot('relation_name', 'relation_notes', 'status_id')
+                    ->withPivot('relation_name', 'relation_notes', 'status') // booleano
                     ->withTimestamps();
     }
 
-    public function creator(): BelongsTo {
+    /**
+     * Scope: filtra solo ISPs activos en el pivot
+     */
+    public function activeIsps(): BelongsToMany
+    {
+        return $this->isps()->wherePivot('status', true);
+    }
+
+    /**
+     * Relación: OLT creado por un usuario
+     */
+    public function creator(): BelongsTo
+    {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function scopeActive($query) {
-        $activeStatusId = Status::where('code', 'active')->value('id');
-        return $query->where($this->table.'.status_id', $activeStatusId);
+    /**
+     * Scope: solo OLTs activos
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', true);
     }
 
+    /**
+     * Scope: solo OLTs inactivos
+     */
+    public function scopeInactive($query)
+    {
+        return $query->where('status', false);
+    }
 }

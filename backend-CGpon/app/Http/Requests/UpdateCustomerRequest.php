@@ -14,7 +14,7 @@ class UpdateCustomerRequest extends FormRequest
     {
         // Allow update based on user type
         $user_type = GeneralHelper::get_user_type_code();
-        return in_array($user_type, ['superadmin', 'main_provider', 'isp_representative']);
+        return in_array($user_type, ['superadmin', 'main_provider']);
     }
 
     /**
@@ -33,24 +33,9 @@ class UpdateCustomerRequest extends FormRequest
         ];
 
         // Add additional rules based on user type
-        if ($user_type === 'superadmin') {
+        if (in_array($user_type, ['superadmin', 'main_provider'])) {
             $rules = array_merge($rules, [
-                'gpon_interface' => 'nullable|string|max:50' . $customerId,
-                'service_number' => 'required|string|max:50|unique:customers,service_number,' . $customerId,
-                'code_customer' => 'required|string|max:50|unique:customers,code_customer,' . $customerId,
-                'customer_name' => 'required|string|max:255',
-                'olt_id' => 'nullable|exists:olts,id',
-            ]);
-        } elseif ($user_type === 'main_provider') {
-            $rules = array_merge($rules, [
-                'gpon_interface' => 'nullable|string|max:50' . $customerId,
-                'service_number' => 'required|string|max:50|unique:customers,service_number,' . $customerId,
-                'code_customer' => 'required|string|max:50|unique:customers,code_customer,' . $customerId,
-                'customer_name' => 'required|string|max:255',
-                'olt_id' => 'nullable|exists:olts,id',
-            ]);
-        } elseif ($user_type === 'isp_representative') {
-            $rules = array_merge($rules, [
+                'gpon_interface' => 'nullable|string|max:50',
                 'service_number' => 'required|string|max:50|unique:customers,service_number,' . $customerId,
                 'code_customer' => 'required|string|max:50|unique:customers,code_customer,' . $customerId,
                 'customer_name' => 'required|string|max:255',

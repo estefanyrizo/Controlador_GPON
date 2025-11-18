@@ -16,8 +16,11 @@ use Throwable;
 
 class ISPController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('role:superadmin,main_provider');
+    }
     /**
-     * Listado de ISPs + statuses
      * Soporta paginación opcional (?page=..&per_page=..).
      */
     public function index(): JsonResponse
@@ -36,33 +39,28 @@ class ISPController extends Controller
         // Paginación opcional
         $perPage = request()->query('per_page');
     
-        $query = ISP::leftJoin('statuses', 'isps.status_id', '=', 'statuses.id')
-        ->select(
-            'isps.id',
-            'isps.name',
-            'isps.description',
-            'isps.created_at',
-            'isps.updated_at',
-            'statuses.id as status_id',
-            'statuses.code as status_code',
-            'statuses.name as status_name',
+        $query = ISP::select(
+            'id',
+            'name',
+            'description',
+            'created_at',
+            'updated_at',
+            DB::raw("CASE WHEN status THEN 'Activo' ELSE 'Inactivo' END as status_name"),
+            'status as status', // booleano original si lo necesitas
             DB::raw('(SELECT COUNT(*) FROM isp_olt WHERE isp_olt.isp_id = isps.id) as olts_count'),
             DB::raw('(SELECT COUNT(*) FROM users WHERE users.isp_id = isps.id) as users_count')
         )
-        ->orderBy('isps.name');
+        ->orderBy('name');
+    
     
         // Obtener resultados con o sin paginación
         $isps = $perPage ? $query->paginate((int)$perPage) : $query->get();
-    
-        // Traer todos los estados disponibles
-        $statuses = Status::select('id', 'name', 'code')->get();
     
         // Respuesta JSON
         return response()->json([
             'success' => true,
             'data' => [
                 'isps' => $isps,
-                'statuses' => $statuses
             ]
         ]);
     }
@@ -164,66 +162,56 @@ class ISPController extends Controller
 
     public function activate(ISP $isp): JsonResponse
     {
-        return $this->changeStatus($isp, 'active');
+        return $this->changeStatus($isp, true);
     }
-
-    /**
-     * Desactivar un ISP
-     */
+    
     public function deactivate(ISP $isp): JsonResponse
     {
-        return $this->changeStatus($isp, 'inactive');
+        return $this->changeStatus($isp, false);
     }
-
-    /**
-     * Cambiar el estado de un ISP de manera segura (lock + transaction)
-     */
-    private function changeStatus(ISP $isp, string $targetStatusCode): JsonResponse
+    
+    private function changeStatus(ISP $isp, bool $status): JsonResponse
     {
         $user_type = GeneralHelper::get_user_type_code();
-
+    
         if (!in_array($user_type, ['superadmin', 'main_provider'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'No tiene permiso para realizar esta acción.'
             ], 403);
         }
-
-        try {
-            $result = DB::transaction(function () use ($isp, $targetStatusCode) {
-                $ispLocked = ISP::where('id', $isp->id)->lockForUpdate()->first();
-
-                $targetStatus = Status::where('code', $targetStatusCode)->first();
-                if (!$targetStatus) {
-                    throw new \RuntimeException("Estado {$targetStatusCode} no configurado.");
-                }
-
-                $ispLocked->status_id = $targetStatus->id;
-                $ispLocked->save();
-
-                return $ispLocked;
-            });
-
-            return response()->json([
-                'success' => true,
-                'message' => "ISP {$targetStatusCode} correctamente.",
-                'data' => [
-                    'id' => $result->id,
-                    'status_id' => $result->status_id
-                ]
-            ]);
-        } catch (Throwable $e) {
-            Log::error("Error changing ISP status to {$targetStatusCode}", [
-                'id' => $isp->id,
-                'error' => $e->getMessage()
-            ]);
-            $status = $e instanceof \RuntimeException ? 404 : 500;
+    
+        if ($isp->status === $status) {
             return response()->json([
                 'success' => false,
-                'message' => $e instanceof \RuntimeException ? $e->getMessage() : 'Error al cambiar estado.'
-            ], $status);
+                'message' => $status ? 'El ISP ya está activado.' : 'El ISP ya está desactivado.'
+            ]);
+        }
+    
+        try {
+            $isp->status = $status;
+            $isp->save();
+    
+            return response()->json([
+                'success' => true,
+                'message' => $status ? 'ISP activado correctamente.' : 'ISP desactivado correctamente.',
+                'data' => [
+                    'id' => $isp->id,
+                    'status' => $isp->status
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("Error cambiando status de ISP {$isp->id}", [
+                'error' => $e->getMessage()
+            ]);
+    
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al cambiar el estado.'
+            ], 500);
         }
     }
+    
 
     /**
      * Eliminar ISP

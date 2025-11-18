@@ -29,95 +29,76 @@ class CustomerController extends Controller
      */
     public function index(): JsonResponse
     {
-       /**
-         * Los clientes los debe mandar a crear inicialmente el isp representative
-         * Entonces este no debe ver los demas isp ya que los que cree seran del isp que tiene asignado
-         * Y podrá ver solo las olt que tenga su respectivo isp.
-         *
-         * Luego el main_provider debe rellenar el gpon_interface nada mas, entonces el no podrá acceder al formulario de guardado, solo al de actualizar
-         *
-         * El superadmin como puede hacer todo puede acceder a todo
-         *
-         */
         $user_type = GeneralHelper::get_user_type_code();
-
-        // Si es superadmin puede observar
-        if ($user_type == 'superadmin') {
-            $olts = OLT::join('isp_olt', 'olts.id', '=', 'isp_olt.olt_id')
-                ->join('isps', 'isps.id', '=', 'isp_olt.isp_id')
-                ->select(
-                    'olts.id as id',
-                    'olts.name as label',
-                    'isps.id as isp_id'
-                )
+        $user_isp_id = request()->user()->isp_id;
+    
+        // ----------------------------------
+        // OLTs (solo las que tengan clientes del ISP)
+        // ----------------------------------
+        if ($user_type === 'superadmin') {
+    
+            $olts = OLT::select('olts.id as id', 'olts.name as label')
                 ->get();
-            // $olts->prepend(['olt_id' => 4, 'title' => 'abc', 'category' => 'abc']);
-        } else if ($user_type == 'isp_representative') {
-            $olts = OLT::join('isp_olt', 'olts.id', '=', 'isp_olt.olt_id')
-                ->where('isp_olt.isp_id', request()->user()->isp_id)
+    
+        } elseif ($user_type === 'isp_representative') {
+    
+            $olts = OLT::join('customers', 'customers.olt_id', '=', 'olts.id')
+                ->where('customers.isp_id', $user_isp_id)
                 ->select('olts.id', 'olts.name as label')
+                ->distinct()
                 ->get();
-            // $olts->prepend(['id' => '', 'label' => 'Seleccione una opción']);
+    
         } else {
             $olts = null;
         }
-
-        if ($user_type == 'superadmin' ) { //|| $user_type == 'main_provider'
+    
+        // ----------------------------------
+        // ISPs
+        // ----------------------------------
+        if ($user_type === 'superadmin') {
             $isps = ISP::active()->select('id', 'name as label')->get();
+        } elseif ($user_type === 'isp_representative') {
+            // Su único ISP (colección para mantener estructura)
+            $isps = ISP::where('id', $user_isp_id)
+                ->select('id', 'name as label')
+                ->get();
         } else {
             $isps = null;
         }
-
-        // Logica del index (mostrar la tabla)
+    
+        // ----------------------------------
+        // Customers
+        // ----------------------------------
         $customers = Customer::select(
-            'customers.id',
-            'customers.gpon_interface',
-            'customers.service_number',
-            'customers.code_customer',
-            'customers.customer_name',
-            'customers.obtained_velocity',
-            'olts.name as olt_name',
-            'olts.id as olt_id',
-            'isps.id as isp_id',
-            'isps.name as isp_name',
-            DB::raw('CASE WHEN customers.obtained_status = 1 THEN "Activo" ELSE "Suspendido" END as status')
-        )
-        ->leftJoin('olts', 'customers.olt_id', '=', 'olts.id')
-        ->leftJoin('isps', 'customers.isp_id', '=', 'isps.id');
-
-        // If the user is from a ISP, he can only see customers that belongs to that ISP
-        if ($user_type == 'isp_representative') {
-            $customers->whereExists(function ($query) {
-                $query->select(DB::raw(1))
-                    ->from('isp_olt')
-                    ->whereColumn('isp_olt.olt_id', 'olts.id')
-                    ->where('isp_olt.isp_id', request()->user()->isp_id);
-            });
+                'customers.id',
+                'customers.gpon_interface',
+                'customers.service_number',
+                'customers.code_customer',
+                'customers.customer_name',
+                'customers.obtained_velocity',
+                'olts.name as olt_name',
+                'olts.id as olt_id',
+                'isps.id as isp_id',
+                'isps.name as isp_name',
+                DB::raw('CASE WHEN customers.obtained_status = 1 THEN "Activo" ELSE "Suspendido" END as status')
+            )
+            ->leftJoin('olts', 'customers.olt_id', '=', 'olts.id')
+            ->leftJoin('isps', 'customers.isp_id', '=', 'isps.id');
+    
+        // *** Aquí está el filtro clave ***
+        if ($user_type === 'isp_representative') {
+            $customers->where('customers.isp_id', $user_isp_id);
         }
-
-        // Log the SQL query for debugging
-        \Log::debug('Customers Query', [
-            'sql' => $customers->toSql(),
-            'bindings' => $customers->getBindings()
-        ]);
-
+    
         $customers = $customers->get();
-
-        // Log the results
-        \Log::debug('Customers Results', [
-            'count' => $customers->count(),
-            'unique_ids' => $customers->pluck('id')->unique()->count(),
-            'first_few' => $customers->take(3)->toArray()
-        ]);
-
-        // dd($customers);
     
         return response()->json([
             'olts' => $olts,
             'isps' => $isps,
             'customers' => $customers,
         ]);
-    }
+    }    
+    
     
     /**
      * Store a newly created resource in storage (API).

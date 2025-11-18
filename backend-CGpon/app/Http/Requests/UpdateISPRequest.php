@@ -34,7 +34,7 @@ class UpdateISPRequest extends FormRequest
                 Rule::unique('isps')->ignore($this->route('isp'))
             ],
             'description' => 'nullable|string|max:1000',
-            'status_id' => 'sometimes|exists:statuses,id',
+            'status' => 'sometimes|boolean',
         ];
     }
 

@@ -21,7 +21,7 @@ class OltSeeder extends Seeder
             'username' => 'gpon_itel',
             'password' => 'itel2025..',
             'must_login' => 'yes',
-            'status_id' => 1,
+            'status' => true,
             'created_by' => 1,
             'created_at' => $now,
             'updated_at' => $now,
@@ -124,7 +124,7 @@ class OltSeeder extends Seeder
 
         // Associate OLT with ISPs
         // $activeStatusId = Status::where('code', 'active')->value('id');
-        $activeStatusId = 1;
+        $activeStatusId = true;
         $isp_id = 1;
 
         foreach ($olts as $olt) {
@@ -135,7 +135,7 @@ class OltSeeder extends Seeder
             $olt->isps()->attach($isp_id, [
                 'relation_name' => "Relación {$olt['name']} - Itel",
                 // 'relation_notes' => 'Proveedor principal',
-                'status_id' => $activeStatusId
+                'status' => $activeStatusId
             ]);
         }
     }

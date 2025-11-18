@@ -23,10 +23,12 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $user = Auth::guard('api')->user();
+
         return response()->json([
             'success' => true,
             'token' => $token,
-            'user' => Auth::guard('api')->user()
+            'user' => $this->formatUserResponse($user)
         ]);
     }
 
@@ -40,7 +42,11 @@ class AuthController extends Controller
     // Obtener info del usuario autenticado
     public function me()
     {
-        return response()->json(['user' => Auth::guard('api')->user()]);
+        $user = Auth::guard('api')->user();
+
+        return response()->json([
+            'user' => $user ? $this->formatUserResponse($user) : null
+        ]);
     }
 
     // Refresh token
@@ -49,5 +55,27 @@ class AuthController extends Controller
         return response()->json([
             'token' => Auth::guard('api')->refresh()
         ]);
+    }
+
+    private function formatUserResponse(User $user): array
+    {
+        $user->loadMissing(['userType', 'isp']);
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'username' => $user->username,
+            'email' => $user->email,
+            'user_type_id' => $user->user_type_id,
+            'user_type_code' => $user->userType->code ?? null,
+            'user_type_name' => $user->userType->name ?? null,
+            'user_type' => $user->userType->name ?? null,
+            'status' => $user->status,
+            'isp_id' => $user->isp_id,
+            'isp_name' => $user->isp->name ?? null,
+            'isp' => $user->isp->name ?? null,
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at,
+        ];
     }
 }

@@ -14,14 +14,6 @@ class CatalogsSeeder extends Seeder
      */
     public function run(): void
     {
-        Status::create([
-            'name' => 'Activo',
-            'code' => 'active'
-        ]);
-        Status::create([
-            'name' => 'Inactivo',
-            'code' => 'inactive'
-        ]);
 
         UserType::create([
             'name' => 'Superadmin',

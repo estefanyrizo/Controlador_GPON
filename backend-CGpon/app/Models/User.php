@@ -29,7 +29,6 @@ public function getJWTCustomClaims() { return []; }
 
 
 public function userType() { return $this->belongsTo(UserType::class, 'user_type_id'); }
-public function status() { return $this->belongsTo(Status::class, 'status_id'); }
 public function isp() { return $this->belongsTo(Isp::class, 'isp_id'); }
 public function activityLogs() { return $this->hasMany(ActivityLog::class, 'user_id'); }
 

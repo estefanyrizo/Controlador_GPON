@@ -17,6 +17,10 @@ use Illuminate\Support\Facades\Hash;
 
 class UsersController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('role:superadmin,main_provider');
+    }
     /**
      * List all users with related data for API.
      */
@@ -38,10 +42,8 @@ class UsersController extends Controller
             ? ISP::active()->select('id', 'name as label')->get()
             : null;
 
-        $statuses = Status::select('id', 'name as label', 'code')->get();
 
-        $users = User::leftJoin('isps', 'users.isp_id', '=', 'isps.id')
-            ->join('statuses', 'users.status_id', '=', 'statuses.id')
+            $users = User::leftJoin('isps', 'users.isp_id', '=', 'isps.id')
             ->join('user_types', 'users.user_type_id', '=', 'user_types.id')
             ->select(
                 'users.id',
@@ -50,18 +52,18 @@ class UsersController extends Controller
                 'users.email',
                 'users.isp_id',
                 'users.user_type_id',
-                'users.status_id',
+                'users.status as status', // booleano
                 'isps.name as isp_name',
-                'statuses.name as status_name',
-                'statuses.code as status_code',
+                DB::raw("CASE WHEN users.status THEN 'Activo' ELSE 'Inactivo' END as status_name"),
+                DB::raw("CASE WHEN users.status THEN 'active' ELSE 'inactive' END as status_code"),
                 'user_types.name as user_type'
             )
             ->get();
+        
 
         return response()->json([
             'user_types' => $user_types,
             'isps' => $isps,
-            'statuses' => $statuses,
             'users' => $users
         ]);
     }
@@ -162,15 +164,7 @@ class UsersController extends Controller
 
     public function activate(User $user)
     {
-        $status = Status::where('code', 'active')->first();
-    
-        if (!$status) {
-            return response()->json([
-                'message' => 'No existe el estado "activate" en la BD.'
-            ], 422);
-        }
-    
-        if ($user->status_id == $status->id) {
+        if ($user->status) {
             return response()->json([
                 'message' => 'El usuario ya está activado.',
                 'user' => $user
@@ -178,17 +172,14 @@ class UsersController extends Controller
         }
     
         try {
-            DB::beginTransaction();
-            $user->status_id = $status->id;
+            $user->status = true;
             $user->save();
-            DB::commit();
     
             return response()->json([
                 'message' => 'Usuario activado correctamente.',
                 'user' => $user
             ]);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al activar usuario.',
                 'error' => $e->getMessage()
@@ -198,15 +189,7 @@ class UsersController extends Controller
     
     public function deactivate(User $user)
     {
-        $status = Status::where('code', 'inactive')->first();
-    
-        if (!$status) {
-            return response()->json([
-                'message' => 'No existe el estado "deactivate" en la BD.'
-            ], 422);
-        }
-    
-        if ($user->status_id == $status->id) {
+        if (!$user->status) {
             return response()->json([
                 'message' => 'El usuario ya está desactivado.',
                 'user' => $user
@@ -214,23 +197,21 @@ class UsersController extends Controller
         }
     
         try {
-            DB::beginTransaction();
-            $user->status_id = $status->id;
+            $user->status = false;
             $user->save();
-            DB::commit();
     
             return response()->json([
                 'message' => 'Usuario desactivado correctamente.',
                 'user' => $user
             ]);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Error al desactivar usuario.',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
+    
 
     public function updatePassword(Request $request, User $user)
     {

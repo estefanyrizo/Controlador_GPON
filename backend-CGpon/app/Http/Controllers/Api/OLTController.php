@@ -6,16 +6,20 @@ use App\Http\Controllers\Controller;
 use App\Helpers\GeneralHelper;
 use App\Models\ISP;
 use App\Models\OLT;
-use App\Models\Status;
 use App\Http\Requests\StoreOLTRequest;
 use App\Http\Requests\UpdateOLTRequest;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
 
 class OLTController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('role:superadmin,main_provider');
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -26,7 +30,7 @@ class OLTController extends Controller
         // Get ISPs
         if ($user_type == 'superadmin' || $user_type == 'main_provider') {
             $isps = ISP::active()->select('id', 'name as label')->get();
-        } else if ($user_type == 'isp_representative') {
+        } elseif ($user_type == 'isp_representative') {
             $isps = ISP::where('id', $request->user()->isp_id)
                 ->active()
                 ->select('id', 'name as label')
@@ -43,7 +47,7 @@ class OLTController extends Controller
             $olts->whereHas('isps', fn($q) => $q->where('isps.id', $ispId));
         }
 
-        // Filters
+        // Filters by ISP
         $ispFilters = $selectedIspFilters = [];
         if ($request->has('isp_filters')) {
             $requestFilters = $request->input('isp_filters');
@@ -55,15 +59,15 @@ class OLTController extends Controller
             $olts->whereHas('isps', fn($q) => $q->whereIn('isps.id', $ispFilters));
         }
 
+        // Filters by status
         $statusFilter = $request->input('status_filter', 'all');
         $selectedStatusFilter = $statusFilter;
         if ($statusFilter !== 'all') {
-            $statusId = Status::where('code', $statusFilter)->value('id');
-            if ($statusId) $olts->where('olts.status_id', $statusId);
+            $olts->where('status', $statusFilter === 'active');
         }
 
         $olts = $olts
-            ->with(['status', 'creator', 'isps'])
+            ->with(['creator', 'isps'])
             ->withCount('customers')
             ->get()
             ->map(function ($olt) {
@@ -78,7 +82,7 @@ class OLTController extends Controller
                     'must_login' => $olt->must_login,
                     'created_by' => $olt->created_by,
                     'created_by_user' => $olt->creator?->name,
-                    'status_name' => $olt->status?->name,
+                    'status_name' => $olt->status ? 'Activo' : 'Inactivo',
                     'customers_count' => $olt->customers_count,
                     'isp_name' => $olt->isps->pluck('name')->implode(', '),
                     'isp_id' => $olt->isps->first()?->id,
@@ -103,9 +107,6 @@ class OLTController extends Controller
         try {
             DB::beginTransaction();
 
-            $activeStatusId = Status::where('code', 'active')->value('id');
-            $validated['status_id'] = $activeStatusId;
-
             $olt = OLT::create([
                 'name' => $validated['name'],
                 'ip_olt' => $validated['ip_olt'],
@@ -114,7 +115,7 @@ class OLTController extends Controller
                 'username' => $validated['username'],
                 'password' => $validated['password'],
                 'must_login' => $validated['must_login'],
-                'status_id' => $activeStatusId,
+                'status' => true, // activo por defecto
                 'created_by' => $request->user()->id,
             ]);
 
@@ -139,7 +140,7 @@ class OLTController extends Controller
      */
     public function show(OLT $olt): JsonResponse
     {
-        return response()->json($olt->load(['status', 'creator', 'isps']));
+        return response()->json($olt->load(['creator', 'isps']));
     }
 
     /**
@@ -239,7 +240,7 @@ class OLTController extends Controller
                 if (!$hasAccess) return response()->json(['error' => 'No tiene permiso para actualizar este OLT.'], 403);
             }
 
-            $activeStatusId = Status::where('code', 'active')->value('id');
+            // Detach todas las relaciones
             $olt->isps()->detach();
 
             foreach ($request->relationships as $relationship) {
@@ -247,7 +248,7 @@ class OLTController extends Controller
                 $olt->isps()->attach($relationship['isp_id'], [
                     'relation_name' => $relationship['relation_name'] ?? "Relación {$olt->name} - " . ($isp?->name ?? ''),
                     'relation_notes' => $relationship['relation_notes'] ?? "",
-                    'status_id' => $activeStatusId,
+                    'status' => true, // activo por defecto en pivot
                 ]);
             }
 
@@ -281,7 +282,7 @@ class OLTController extends Controller
                 'isp_name' => $isp->name,
                 'relation_name' => $isp->pivot->relation_name,
                 'relation_notes' => $isp->pivot->relation_notes,
-                'status' => 'active',
+                'status' => $isp->pivot->status ? 'Activo' : 'Inactivo',
             ]);
 
             $creator = $olt->created_by ? \App\Models\User::find($olt->created_by)?->name : null;
@@ -298,4 +299,57 @@ class OLTController extends Controller
             ], 500);
         }
     }
+
+    public function activate(OLT $olt): JsonResponse
+    {
+        return $this->changeStatus($olt, true);
+    }
+    
+    public function deactivate(OLT $olt): JsonResponse
+    {
+        return $this->changeStatus($olt, false);
+    }
+    
+    private function changeStatus(OLT $olt, bool $status): JsonResponse
+    {
+        $user_type = GeneralHelper::get_user_type_code();
+    
+        if (!in_array($user_type, ['superadmin', 'main_provider'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tiene permiso para realizar esta acción.'
+            ], 403);
+        }
+    
+        if ($olt->status === $status) {
+            return response()->json([
+                'success' => false,
+                'message' => $status ? 'La OLT ya está activado.' : 'La OLT ya está desactivada.'
+            ]);
+        }
+    
+        try {
+            $olt->status = $status;
+            $olt->save();
+    
+            return response()->json([
+                'success' => true,
+                'message' => $status ? 'OLT activada correctamente.' : 'OLT desactivada correctamente.',
+                'data' => [
+                    'id' => $olt->id,
+                    'status' => $olt->status
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("Error cambiando status de OLT {$olt->id}", [
+                'error' => $e->getMessage()
+            ]);
+    
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al cambiar el estado.'
+            ], 500);
+        }
+    }
+    
 }

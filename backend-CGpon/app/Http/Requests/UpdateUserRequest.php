@@ -39,21 +39,18 @@ class UpdateUserRequest extends FormRequest
         $user_type_code = GeneralHelper::get_user_type_code();
         $user = $this->route('user');
 
-        $users_unique_on_active_generic = Rule::unique('users')->where(function ($query) {
-            $query->where('status_id', function ($subQuery) {
-                $subQuery->select('id')
-                    ->from('statuses')
-                    ->where('code', 'active');
-            });
-        })->ignore($user->id);
-
+        $users_unique_on_active_generic = Rule::unique('users')
+        ->where(function ($query) {
+            $query->where('status', true); // solo usuarios activos
+        })
+        ->ignore($user->id);
+    
         // Base rules that apply to all user types
         $rules = [
             'name' => 'required|string|max:255',
             'username' => ['required', 'string', 'max:255', $users_unique_on_active_generic],
             'email' => ['nullable', 'string', 'lowercase', 'email', 'max:255', $users_unique_on_active_generic],
             'password' => ['nullable', Rules\Password::defaults()],
-            'status_id' => ['required', Rule::exists('statuses', 'id')]
         ];
 
         // Add ISP ID validation only if the user type is ISP representative

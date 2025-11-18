@@ -51,7 +51,7 @@ class StoreCustomerRequest extends FormRequest
     public function authorize(): bool
     {
         $user_type_code = GeneralHelper::get_user_type_code();
-        $allowed_types = ['superadmin', 'isp_representative'];
+        $allowed_types = ['superadmin', 'main_provider'];
         return in_array($user_type_code, $allowed_types);
     }
 
@@ -66,9 +66,9 @@ class StoreCustomerRequest extends FormRequest
         ]);
 
         if (!$this->input('gpon_interface') && $this->input('olt_id')) {
-            $olt = OLT::with('model')->find($this->input('olt_id'));
-            if ($olt && $olt->model && $olt->model->gpon_interface_structure) {
-                $structure = $olt->model->gpon_interface_structure;
+            $olt = OLT::find($this->input('olt_id'));
+            $structure = $this->getOltModelStructure($olt);
+            if ($structure) {
                 if (isset($structure['segments']) && isset($structure['full_string_pattern'])) {
                     $segmentValues = [];
                     $allPartsPresent = true;
@@ -109,9 +109,9 @@ class StoreCustomerRequest extends FormRequest
         $gponInterfaceRules = ['nullable', 'string', 'max:255'];
 
         if ($requestedOltId) {
-            $olt = OLT::with('model')->find($requestedOltId);
-            if ($olt && $olt->model && !empty($olt->model->gpon_interface_structure)) {
-                $structure = $olt->model->gpon_interface_structure;
+            $olt = OLT::find($requestedOltId);
+            $structure = $this->getOltModelStructure($olt);
+            if ($structure) {
                 if (isset($structure['validation_regex']) && !empty($structure['validation_regex'])) {
                     // Ensure the regex pattern has proper delimiters and Unicode modifier
                     $pattern = trim($structure['validation_regex']);
@@ -206,6 +206,21 @@ class StoreCustomerRequest extends FormRequest
         // dd($rules);
 
         return $rules;
+    }
+
+    private function getOltModelStructure(?OLT $olt): ?array
+    {
+        if (!$olt || !method_exists($olt, 'model')) {
+            return null;
+        }
+
+        $model = $olt->model;
+
+        if (is_object($model) && isset($model->gpon_interface_structure)) {
+            return $model->gpon_interface_structure;
+        }
+
+        return null;
     }
 
     // This function checks that at least one field is not empty before creating the db record

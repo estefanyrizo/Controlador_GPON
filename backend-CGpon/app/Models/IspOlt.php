@@ -24,8 +24,4 @@ class IspOlt extends Pivot
         return $this->belongsTo(OLT::class, 'olt_id');
     }
 
-    public function status(): BelongsTo
-    {
-        return $this->belongsTo(Status::class);
-    }
 }

@@ -20,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\ForceJsonResponse::class, // <-- CREAREMOS ESTO
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
+
+        $middleware->alias([
+            'role' => \App\Http\Middleware\EnsureRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

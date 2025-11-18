@@ -38,13 +38,11 @@ class StoreUserRequest extends FormRequest
 
         $user_type_code = GeneralHelper::get_user_type_code();
 
-        $users_unique_on_active_generic = Rule::unique('users')->where(function ($query) {
-            $query->where('status_id', function ($subQuery) {
-                $subQuery->select('id')
-                    ->from('statuses')
-                    ->where('code', 'active');
-            });
+        $users_unique_on_active_generic = Rule::unique('users')
+        ->where(function ($query) {
+            $query->where('status', true); // solo usuarios activos
         });
+    
 
         if ($user_type_code == 'superadmin') {
             return [
