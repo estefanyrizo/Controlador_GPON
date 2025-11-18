@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\OltBrandController;
 
 // Rutas de autenticación
 Route::post('login', [AuthController::class, 'login']);
+Route::post('refresh', [AuthController::class, 'refresh']); // Movido fuera del middleware para permitir tokens expirados
 
 // Rutas protegidas con middleware auth:api
 Route::middleware('auth:api')->group(function () {
@@ -19,7 +20,6 @@ Route::middleware('auth:api')->group(function () {
     // Auth
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
-    Route::post('refresh', [AuthController::class, 'refresh']);
 
     // Perfil
     Route::get('/profile', [ProfileController::class, 'edit']);

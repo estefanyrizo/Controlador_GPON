@@ -52,9 +52,22 @@ class AuthController extends Controller
     // Refresh token
     public function refresh()
     {
-        return response()->json([
-            'token' => Auth::guard('api')->refresh()
-        ]);
+        try {
+            // Intentar refrescar el token (JWT permite refrescar tokens expirados dentro del refresh_ttl)
+            /** @var \Tymon\JWTAuth\JWTGuard $guard */
+            $guard = Auth::guard('api');
+            $newToken = $guard->refresh();
+            
+            return response()->json([
+                'success' => true,
+                'token' => $newToken
+            ]);
+        } catch (JWTException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo refrescar el token. Por favor, inicie sesión nuevamente.'
+            ], 401);
+        }
     }
 
     private function formatUserResponse(User $user): array
