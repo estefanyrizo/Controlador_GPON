@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Helpers\GeneralHelper;
 use App\Models\ISP;
-use App\Models\Status;
 use App\Http\Requests\StoreISPRequest;
 use App\Http\Requests\UpdateISPRequest;
 use App\Http\Requests\DeleteISPRequest;
@@ -20,55 +19,39 @@ class ISPController extends Controller
     {
         $this->middleware('role:superadmin,main_provider');
     }
-    /**
-     * Soporta paginación opcional (?page=..&per_page=..).
-     */
+
     public function index(): JsonResponse
     {
-        // Obtener el tipo de usuario actual
         $user_type = GeneralHelper::get_user_type_code();
-    
-        // Solo superadmin o main_provider pueden acceder
+
         if (!in_array($user_type, ['superadmin', 'main_provider'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'No tiene permiso para acceder a este recurso.'
             ], 403);
         }
-    
-        // Paginación opcional
+
         $perPage = request()->query('per_page');
-    
+
         $query = ISP::select(
             'id',
             'name',
             'description',
             'created_at',
             'updated_at',
-            DB::raw("CASE WHEN status THEN 'Activo' ELSE 'Inactivo' END as status_name"),
-            'status as status', // booleano original si lo necesitas
+            DB::raw("CASE WHEN status THEN 'Activo' ELSE 'Inactivo' END as status"),
             DB::raw('(SELECT COUNT(*) FROM isp_olt WHERE isp_olt.isp_id = isps.id) as olts_count'),
             DB::raw('(SELECT COUNT(*) FROM users WHERE users.isp_id = isps.id) as users_count')
-        )
-        ->orderBy('name');
-    
-    
-        // Obtener resultados con o sin paginación
+        )->orderBy('name');
+
         $isps = $perPage ? $query->paginate((int)$perPage) : $query->get();
-    
-        // Respuesta JSON
+
         return response()->json([
             'success' => true,
-            'data' => [
-                'isps' => $isps,
-            ]
+            'data' => ['isps' => $isps]
         ]);
     }
-    
 
-    /**
-     * Crear ISP
-     */
     public function store(StoreISPRequest $request): JsonResponse
     {
         $validated = $request->validated();
@@ -76,20 +59,10 @@ class ISPController extends Controller
         try {
             DB::beginTransaction();
 
-            $activeStatus = Status::where('code', 'active')->first();
-
-            if (!$activeStatus) {
-                DB::rollBack();
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Estado activo no encontrado en el sistema.'
-                ], 404);
-            }
-
             $isp = ISP::create([
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? null,
-                'status_id' => $activeStatus->id,
+                'status' => true, // activo por defecto
             ]);
 
             DB::commit();
@@ -101,18 +74,17 @@ class ISPController extends Controller
             ], 201);
         } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Error creating ISP', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error creating ISP', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Error al crear ISP.'
-                // opcional: en entorno de desarrollo se puede devolver 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-    /**
-     * Mostrar un ISP (usando route-model binding)
-     */
     public function show(ISP $isp): JsonResponse
     {
         $isp = ISP::withCount(['olts', 'users'])->find($isp->id);
@@ -130,9 +102,6 @@ class ISPController extends Controller
         ]);
     }
 
-    /**
-     * Actualizar ISP
-     */
     public function update(UpdateISPRequest $request, ISP $isp): JsonResponse
     {
         $validated = $request->validated();
@@ -164,34 +133,34 @@ class ISPController extends Controller
     {
         return $this->changeStatus($isp, true);
     }
-    
+
     public function deactivate(ISP $isp): JsonResponse
     {
         return $this->changeStatus($isp, false);
     }
-    
+
     private function changeStatus(ISP $isp, bool $status): JsonResponse
     {
         $user_type = GeneralHelper::get_user_type_code();
-    
+
         if (!in_array($user_type, ['superadmin', 'main_provider'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'No tiene permiso para realizar esta acción.'
             ], 403);
         }
-    
+
         if ($isp->status === $status) {
             return response()->json([
                 'success' => false,
                 'message' => $status ? 'El ISP ya está activado.' : 'El ISP ya está desactivado.'
             ]);
         }
-    
+
         try {
             $isp->status = $status;
             $isp->save();
-    
+
             return response()->json([
                 'success' => true,
                 'message' => $status ? 'ISP activado correctamente.' : 'ISP desactivado correctamente.',
@@ -200,22 +169,15 @@ class ISPController extends Controller
                     'status' => $isp->status
                 ]
             ]);
-        } catch (\Throwable $e) {
-            Log::error("Error cambiando status de ISP {$isp->id}", [
-                'error' => $e->getMessage()
-            ]);
-    
+        } catch (Throwable $e) {
+            Log::error("Error cambiando status de ISP {$isp->id}", ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Error al cambiar el estado.'
             ], 500);
         }
     }
-    
 
-    /**
-     * Eliminar ISP
-     */
     public function destroy(DeleteISPRequest $request, ISP $isp): JsonResponse
     {
         try {
@@ -227,7 +189,6 @@ class ISPController extends Controller
 
             DB::beginTransaction();
 
-            // usar exists() es más eficiente que count()
             if ($isp->olts()->exists()) {
                 DB::rollBack();
                 return response()->json([

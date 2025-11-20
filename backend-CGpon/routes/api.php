@@ -59,17 +59,16 @@ Route::middleware('auth:api')->group(function () {
     Route::resource('customers', CustomerController::class);
 
     Route::prefix('customers')->name('customers')->group(function () {
-        Route::middleware('role:superadmin,main_provider')->group(function () {
+        Route::middleware('role:superadmin,main_provider,isp_representative')->group(function () {
             Route::post('collect', [CustomerController::class, 'collect'])->name('customers.collect');
             Route::post('/{customer}/activar', [CustomerController::class, 'activarCliente'])->name('customers.activar');
             Route::post('/{customer}/suspender', [CustomerController::class, 'suspenderCliente'])->name('customers.suspender');
             Route::post('/{customer}/change-speed', [CustomerController::class, 'changeSpeed'])->name('customers.changeSpeed');
-        });
-
-        Route::middleware('role:superadmin,main_provider,isp_representative')->group(function () {
             Route::get('/{customer}/status', [CustomerController::class, 'status'])->name('customers.status');
             Route::get('/{customer}/speed', [CustomerController::class, 'getSpeed'])->name('customers.getSpeed');
             Route::get('/{customer}/complete-status', [CustomerController::class, 'completeStatus'])->name('completeStatus');
+            Route::post('alta', [CustomerController::class, 'alta'])->name('customers.alta');
+
         });
     });
 
@@ -97,6 +96,10 @@ Route::middleware('auth:api')->group(function () {
 
         Route::post('/{olt}/activate', [OLTController::class, 'activate']);
         Route::post('/{olt}/deactivate', [OLTController::class, 'deactivate']);   
+        Route::get('/{olt}/onu-uncfg', [OLTController::class, 'uncfgONU'])->name('onu-uncfg');
+        Route::get('/{olt}/{pon}/existing-onu', [OLTController::class, 'existingONU'])
+        ->where('pon', '.*');
+
     });
 
     // Resource principal para usuarios

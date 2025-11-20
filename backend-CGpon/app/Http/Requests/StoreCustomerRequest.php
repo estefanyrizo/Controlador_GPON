@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use App\Helpers\GeneralHelper;
 use App\Models\OLT;
-use App\Models\Status;
 use App\Services\CustomerService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\DB;
@@ -101,7 +100,6 @@ class StoreCustomerRequest extends FormRequest
      */
     public function rules(): array
     {
-        $activeStatusId = Status::where('code', 'active')->value('id');
         $user_type_code = GeneralHelper::get_user_type_code();
 
         $requestedOltId = $this->input('olt_id');
@@ -181,18 +179,18 @@ class StoreCustomerRequest extends FormRequest
                 $this->validateUniquenessOnISP($ispIdForUniqueness)
             ],
             'customer_name' => ['nullable', 'string', 'max:255'],
-            'olt_id' => ['required', Rule::exists('olts', 'id')->where('status_id', $activeStatusId)],
+            'olt_id' => ['required', Rule::exists('olts', 'id')->where('status', 1)],
             'comment' => ['nullable', 'string', 'max:1000'],
         ];
 
         $rules = ['gpon_interface' => $gponInterfaceRules] + $commonRules;
 
         if ($user_type_code === 'superadmin') {
-            $rules['isp_id'] = ['nullable', Rule::exists('isps', 'id')->where('status_id', $activeStatusId)];
+            $rules['isp_id'] = ['nullable', Rule::exists('isps', 'id')->where('status', 1)];
         } else if ($user_type_code === 'isp_representative') {
             $rules['olt_id'] = [
                 'required',
-                Rule::exists('olts', 'id')->where('status_id', $activeStatusId)
+                Rule::exists('olts', 'id')->where('status', 1)
                     ->where(function (Builder $query) {
                         $query->whereHas('isps', function (Builder $subQuery) {
                             $subQuery->where('isps.id', $this->user()->isp_id);

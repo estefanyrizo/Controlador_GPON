@@ -8,6 +8,7 @@ use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
+use App\Http\Requests\AltaCustomerRequest;
 use App\Models\ISP;
 use App\Models\OLT;
 use App\Services\CustomerService;
@@ -97,7 +98,8 @@ class CustomerController extends Controller
             'isps' => $isps,
             'customers' => $customers,
         ]);
-    }    
+    }
+    
     
     
     /**
@@ -864,12 +866,9 @@ class CustomerController extends Controller
     public function completeStatus(Customer $customer): JsonResponse
     {
         $gpon_interface = $customer->gpon_interface;
-
-        log::info("Interfaaaaaaz Gpon");
-        log::info($gpon_interface);
         
         $customer->load('olt');
-        $olt_ip = $customer->olt->ip_olt ?? '172.20.5.10';
+        $olt_ip = $customer->olt->ip_olt;
 
         $payload = [
             'device' => [
@@ -948,5 +947,191 @@ class CustomerController extends Controller
                 'optical_power' => 'Error de conexión: No se pudo obtener la potencia óptica.'
             ]);
         }
+    }
+    // Método público que registra al cliente (provisión + DB)
+    public function alta(AltaCustomerRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        // Sanitizaciones / normalizaciones básicas
+        $gpon_interface =  $validated['gpon_interface'];
+        $cliente_name   = $validated['customer_name'];
+        $vlan = $request->vlan;
+        $downstream = $request->downstream;
+        $upstream = $request->upstream;
+        $downstream_label = $request->downstream . ' Mbps';
+
+        // Construir los comandos de provisionamiento
+        $commands = $this->buildProvisionCommands($gpon_interface, $cliente_name, $vlan, $downstream, $upstream);
+        Log::info('Comandos generados:', $commands);
+
+        return response()->json($commands);
+
+        /* 
+        // Datos del OLT (suponiendo que $validated tiene olt_id o la relacion la puedes cargar si hace falta)
+        // Si tienes el objeto OLT desde request, úsalo. Aquí muestro ejemplo cargando la OLT por id.
+        $olt = \App\Models\Olt::find($validated['olt_id'] ?? null);
+        if (! $olt) {
+            return response()->json(['success' => false, 'message' => 'OLT no encontrada.'], 400);
+        }
+        $olt_ip = $olt->ip_olt;
+
+        // Payload para la API que ejecuta comandos en la OLT
+        $payload = [
+            'device' => [
+                'ip_address' => $olt_ip,
+                'username' => 'gpon_itel',
+                'password' => 'itel2025..',
+                'enable_password' => 'string',
+                'timeout' => 30,
+                'retries' => 2,
+                'connection_type' => 'telnet',
+                'port' => 23
+            ],
+            'commands' => $commands
+        ];
+
+        try {
+            Log::info('Provision request to OLT', ['olt_ip' => $olt_ip, 'commands_count' => count($commands)]);
+
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])->timeout(120)->post('http://x8okocwgko08ooswggoko4g4.172.16.255.5.sslip.io/execute', $payload);
+
+            if (! $response->successful()) {
+                Log::error('Provision API HTTP error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'olt_ip' => $olt_ip,
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al conectar con la API de provisión. Código HTTP: ' . $response->status()
+                ], 502);
+            }
+
+            $data = $response->json();
+
+            // Analizar resultados: buscar strings de error o respuestas no esperadas
+            if (! $this->isProvisionSuccessful($data)) {
+                Log::error('Provision failed - outputs show error', [
+                    'response' => $data,
+                    'olt_ip' => $olt_ip,
+                    'commands' => $commands
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La provisión en la OLT falló. Revisa logs del servidor.'
+                ], 500);
+            }
+
+            // Si todo OK, crear el cliente en la BD dentro de transacción
+            DB::beginTransaction();
+            $customer = Customer::create([
+                ...$validated,
+                'obtained_status' => true,
+                'obtained_velocity' => $downstream_label,
+            ]);
+
+            if (!empty($validated['comment'])) {
+                $customer->activity_log()->create([
+                    'user_id' => $request->user()->id,
+                    'action_type' => 'Comentario',
+                    'content' => $validated['comment'],
+                    'start_time' => Carbon::now(),
+                ]);
+            }
+
+            DB::commit();
+
+            // Recargar relaciones si hace falta
+            $customer->load('olt');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cliente creado y provisionado correctamente.',
+                'data' => $customer,
+            ], 201);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error en alta (provison + create)', ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear cliente: ' . $e->getMessage(),
+            ], 500);
+        } */
+    }
+
+    // Construye el array de comandos tal como los pusiste (puedes adaptarlo)
+    private function buildProvisionCommands(string $gpon_interface, string $cliente_name, string $vlan, int $upstream, int $downstream): array
+    {
+        // Si supera los 500 en cualquiera de los dos → usar profile grande
+        $isHighSpeed = $upstream > 500 || $downstream > 500;
+
+        // Elegir profile según velocidad
+        $tcontProfile = $isHighSpeed ? "T4_1Gbps" : "T4_500Mbps";
+
+        return [
+            // Bloque de parámetros de servicio
+            'configure terminal',
+            "interface gpon-onu_{$gpon_interface}",
+            "name {$cliente_name}",
+
+            // Cambia según la velocidad
+            "tcont 1 name TCONT profile {$tcontProfile}",
+
+            // Aquí también se aplica directamente el número recibido
+            "gemport 1 traffic-limit upstream {$upstream}Mbps downstream {$downstream}Mbps",
+
+            "service-port 1 vport 1 user-vlan {$vlan} vlan {$vlan}",
+            "exit",
+
+            // Bloque WAN / gestión
+            "pon-onu-mng gpon-onu_{$gpon_interface}",
+            "service {$cliente_name} gemport 1 vlan {$vlan}",
+            "wan-ip 1 mode dhcp vlan-profile ITEL_NAT_PHONE host 1",
+            "wan-ip 1 ping-response enable traceroute-response enable",
+            "security-mgmt 1 state enable mode forward protocol web https acaaa",
+            "exit",
+        ];
+    }
+
+    // Verifica si la respuesta de la API parece exitosa
+    private function isProvisionSuccessful($apiData): bool
+    {
+        if (!is_array($apiData) || !array_key_exists('results', $apiData) || !is_array($apiData['results'])) {
+            return false;
+        }
+
+        foreach ($apiData['results'] as $item) {
+            $out = strtolower($item['output'] ?? '');
+            // Condiciones típicas de error — ajústalas según la salida real de tu OLT
+            $errorIndicators = [
+                'error', 'invalid', 'invalid input', 'fail', 'already in use', 'not found',
+            ];
+            foreach ($errorIndicators as $err) {
+                if (str_contains($out, $err)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Sanitiza la interfaz (simple)
+    private function sanitizeInterface(string $iface): string
+    {
+        // ejemplo: transformar "1/1/9:2" -> "1/1/9:2" (elimina caracteres raros)
+        return preg_replace('/[^\d\/:]/', '', $iface);
+    }
+
+    // Sanitiza nombre del cliente para no inyectar comillas o saltos
+    private function sanitizeName(string $name): string
+    {
+        $name = preg_replace('/[^\w\-\s]/u', '', $name); // dejar letras, números, guiones y espacios
+        $name = substr($name, 0, 40); // limitar longitud
+        return trim($name);
     }
 }

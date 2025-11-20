@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Http;
 
 class OLTController extends Controller
 {
@@ -82,7 +83,7 @@ class OLTController extends Controller
                     'must_login' => $olt->must_login,
                     'created_by' => $olt->created_by,
                     'created_by_user' => $olt->creator?->name,
-                    'status_name' => $olt->status ? 'Activo' : 'Inactivo',
+                    'status' => $olt->status ? 'Activo' : 'Inactivo',
                     'customers_count' => $olt->customers_count,
                     'isp_name' => $olt->isps->pluck('name')->implode(', '),
                     'isp_id' => $olt->isps->first()?->id,
@@ -351,5 +352,159 @@ class OLTController extends Controller
             ], 500);
         }
     }
+
+    public function uncfgONU(OLT $olt): JsonResponse
+    {
+        if (!$olt || !$olt->ip_olt) {
+            return response()->json(['success' => false, 'message' => 'OLT inválida'], 422);
+        }
+
+        $payload = [
+            'device' => [
+                'ip_address' => $olt->ip_olt,
+                'username' =>  $olt->username,
+                'password' =>  $olt->password,
+                'enable_password' => env('OLT_ENABLE_PASSWORD', 'string'),
+                'timeout' => 10,
+                'retries' => 3,
+                'connection_type' => 'telnet',
+                'port' => 23
+            ],
+            'commands' => [
+                "show pon onu uncfg"
+            ]
+        ];
+
+        log::info('Payload');
+        log::info($olt->username);
+        log::info($olt->password);
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])->timeout(60)
+              ->post(env('OLT_API_URL', 'http://x8okocwgko08ooswggoko4g4.172.16.255.5.sslip.io/execute'), $payload);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $result = array_key_exists('results', $data) && is_array($data['results']) && !empty($data['results']) && array_key_exists('output', $data['results'][0])
+                    ? $data['results'][0]['output']
+                    : null;
+
+                return response()->json(['success' => true, 'status_text' => $result], 200);
+            }
+
+            Log::error('API request failed', ['status' => $response->status(), 'body' => $response->body()]);
+
+            return response()->json(['success' => false, 'message' => 'Error de conexión: No se pudo conectar con la OLT para obtener el estado.'], 502);
+        } catch (\Throwable $e) {
+            Log::error('API connection error', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Error de conexión: No se pudo conectar con la OLT para obtener el estado.'], 502);
+        }
+    }
+
+    public function existingONU(OLT $olt, string $pon): JsonResponse
+    {
+        if (!$olt || !$olt->ip_olt) {
+            return response()->json([
+                'success' => false,
+                'message' => 'OLT inválida'
+            ], 422);
+        }
+    
+        // Límite de ONU por PON (si no existe en DB, usa 128)
+        $ponLimit = $olt->pon_limit ?? 128;
+    
+        $command = "show running-config interface {$pon}";
+    
+        $payload = [
+            'device' => [
+                'ip_address' => $olt->ip_olt,
+                'username' =>  $olt->username,
+                'password' =>  $olt->password,
+                'enable_password' => env('OLT_ENABLE_PASSWORD', 'string'),
+                'timeout' => 10,
+                'retries' => 3,
+                'connection_type' => 'telnet',
+                'port' => 23
+            ],
+            'commands' => [
+                $command
+            ]
+        ];
+    
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])
+            ->timeout(60)
+            ->post(env('OLT_API_URL'), $payload);
+    
+            if (!$response->successful()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de conexión con la OLT'
+                ], 502);
+            }
+    
+            $data = $response->json();
+            $output = $data['results'][0]['output'] ?? '';
+    
+            // Caso: No hay ONUs en ese PON
+            if (
+                isset($data['status_text']) &&
+                str_contains($data['status_text'], 'No related information')
+            ) {
+                return response()->json([
+                    'success' => true,
+                    'raw_output' => '',
+                    'next_consecutive' => 1,
+                    'max_limit' => $ponLimit,
+                    'message' => 'Sin ONUs configuradas en este PON'
+                ], 200);
+            }
+    
+            if (!$output) {
+                return response()->json([
+                    'success' => true,
+                    'raw_output' => '',
+                    'next_consecutive' => 1,
+                    'max_limit' => $ponLimit
+                ], 200);
+            }
+    
+            // Extraer ONU existentes
+            preg_match_all('/\bonu\s+(\d+)\b/', $output, $matches);
+    
+            $numbers = $matches[1] ?? [];
+    
+            $max = !empty($numbers) ? max($numbers) : 0;
+            $next = $max + 1;
+    
+            // NO PASARSE DEL LÍMITE
+            if ($next > $ponLimit) {
+                return response()->json([
+                    'success' => false,
+                    'raw_output' => $output,
+                    'next_consecutive' => null,
+                    'message' => "Límite máximo de ONU alcanzado para este PON ({$ponLimit})."
+                ], 200);
+            }
+    
+            return response()->json([
+                'success' => true,
+                'raw_output' => $output,
+                'next_consecutive' => $next,
+            ], 200);
+    
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de conexión con la OLT'
+            ], 502);
+        }
+    }      
     
 }

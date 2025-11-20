@@ -15,23 +15,36 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->only('username', 'password');
-
+    
+        // Intentar login
         if (!$token = Auth::guard('api')->attempt($credentials)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Credenciales inválidas'
             ], 401);
         }
-
+    
         $user = Auth::guard('api')->user();
-
+    
+        // VALIDAR SI ESTÁ ACTIVO
+        if ($user->status !== 1) {
+            // Invalidar token generado
+            Auth::guard('api')->logout();
+    
+            return response()->json([
+                'success' => false,
+                'message' => 'Tu usuario está inactivo. Contacta al administrador.'
+            ], 403);
+        }
+    
+        // Todo bien → devolver token + datos
         return response()->json([
             'success' => true,
             'token' => $token,
             'user' => $this->formatUserResponse($user)
         ]);
     }
-
+    
     // Logout
     public function logout(Request $request)
     {

@@ -55,7 +55,6 @@ class UsersController extends Controller
                 'users.status as status', // booleano
                 'isps.name as isp_name',
                 DB::raw("CASE WHEN users.status THEN 'Activo' ELSE 'Inactivo' END as status_name"),
-                DB::raw("CASE WHEN users.status THEN 'active' ELSE 'inactive' END as status_code"),
                 'user_types.name as user_type'
             )
             ->get();

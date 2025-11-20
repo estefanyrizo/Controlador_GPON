@@ -16,13 +16,13 @@ class ProfileController extends Controller
      */
     public function edit(Request $request): JsonResponse
     {
-        $user = $request->user()->load(['status', 'userType']); // Carga relaciones
+        $user = $request->user()->load(['userType']); // Carga relaciones
 
         return response()->json([
             'user' => [
                 'name' => $user->name,
                 'email' => $user->email,
-                'status' => $user->status?->name, // devuelve el nombre del estado
+                'status' => $user->status, // devuelve el nombre del estado
                 'type' => $user->userType?->name,     // devuelve el nombre del tipo
             ],
             'mustVerifyEmail' => $user instanceof MustVerifyEmail,
@@ -43,14 +43,14 @@ class ProfileController extends Controller
 
         $user->save();
 
-        $user->load(['status', 'userType']); // recargar relaciones
+        $user->load(['userType']); // recargar relaciones
 
         return response()->json([
             'message' => 'Perfil actualizado correctamente',
             'user' => [
                 'name' => $user->name,
                 'email' => $user->email,
-                'status' => $user->status?->name,
+                'status' => $user->status,
                 'type' => $user->userType?->name,
             ],
         ]);
